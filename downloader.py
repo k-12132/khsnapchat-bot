@@ -17,9 +17,13 @@ class DownloadError(Exception):
 def validate_url(url, media=False):
     p = urlsplit(url)
     host = (p.hostname or '').lower()
-    allowed = any(host == root or host.endswith('.' + root) for root in MEDIA_ROOTS) if media else host in PAGE_HOSTS
+    allowed = any(host == root or host.endswith('.' + root) for root in MEDIA_ROOTS) if media else (host == 'snapchat.com' or host.endswith('.snapchat.com'))
     if p.scheme != 'https' or not allowed or p.username or p.password or p.port not in (None, 443):
-        raise DownloadError('الرابط غير مدعوم. أرسل رابط HTTPS من سناب شات.')
+        if media:
+            raise DownloadError('رابط الوسائط يستخدم نطاقًا غير مدعوم: ' + (host or 'غير معروف'))
+        if p.scheme in ('snapchat', 'snap'):
+            raise DownloadError('الرابط يحوّل إلى تطبيق سناب. افتح القصة في المتصفح وانسخ رابط صفحة القصة العامة.')
+        raise DownloadError('تحويل الرابط إلى نطاق غير مدعوم: ' + (host or 'غير معروف'))
     return url
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
