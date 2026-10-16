@@ -63,7 +63,12 @@ async def check_subscription(update, context):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if permitted(update) and await require_subscription(update, context):
-        await update.message.reply_text('أهلًا 👻\nأرسل رابط ستوري سناب شات عام وسأحاول إرسال وسائطه هنا.\nحتى 20 ملفًا في الطلب، و45 ميجابايت للملف.\nالقصص الخاصة والمنتهية غير مدعومة.\n/myid لمعرفة رقم حسابك.')
+        await update.message.reply_text(
+            '👻 أهلًا بك في سنابك!\n\n'
+            '🎬 حمّل صور وفيديوهات ستوري سناب شات بسهولة.\n\n'
+            '🔗 انسخ رابط الستوري وأرسله هنا، وخلي الباقي علينا!\n\n'
+            '💡 يدعم الستوري العام المتاح للمشاهدة.'
+        )
 
 async def myid(update, context):
     if permitted(update):
