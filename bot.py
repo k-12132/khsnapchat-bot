@@ -46,7 +46,7 @@ async def require_subscription(update, context):
         '👻 لاستخدام البوت، اشترك أولًا في قناتنا ' + REQUIRED_CHANNEL +
         ' ثم اضغط «تحقّق من اشتراكي».'
         if result is False else
-        'تعذر التحقق من الاشتراك حاليًا. يرجى المحاولة لاحقًا؛ يحتاج مسؤول البوت إلى التأكد من إضافته مشرفًا في القناة.'
+        '⏳ ما قدرنا نتحقق من اشتراكك الآن.\nإذا كنت مشتركًا، اضغط «تحقّق من اشتراكي» بعد قليل.\nوإذا ما اشتركت بعد، يسعدنا انضمامك للقناة 💛'
     )
     await update.effective_message.reply_text(message, reply_markup=subscription_buttons())
     return False
@@ -104,6 +104,8 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     path.unlink(missing_ok=True)
                     sent += 1
             await status.edit_text(f'✅ أُرسل {sent} ملف. تعذر تنزيل {failed} ملف.' if sent else 'تعذر تنزيل الوسائط الموجودة في الرابط.')
+            if sent:
+                await send_follow_invitation(update.message)
     except DownloadError as exc:
         if status:
             await status.edit_text(str(exc))
@@ -115,6 +117,21 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
     finally:
         BUSY.discard(uid)
+
+
+async def send_follow_invitation(message):
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton('👻 تابعني على سناب', url='https://snapchat.com/t/d9GtFjtN')],
+        [InlineKeyboardButton('🎵 تابعني على تيك توك', url='https://www.tiktok.com/@kh01ed')],
+    ])
+    try:
+        await message.reply_text(
+            '💛 استفدت من سنابك؟ متابعتك تسعدني وتدعم استمرار البوت!\n'
+            'تابعني على سناب وتيك توك للمحتوى التقني والشروحات المفيدة 👇',
+            reply_markup=keyboard,
+        )
+    except TelegramError:
+        logging.warning('Follow invitation could not be sent.')
 
 async def error(update, context):
     logging.warning('Telegram update failed (%s)', type(context.error).__name__)
