@@ -5,6 +5,7 @@ import re
 import tempfile
 from pathlib import Path
 from telegram import Update
+from telegram.error import InvalidToken
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 from downloader import DownloadError, validate_url, media_links, download
 
@@ -77,16 +78,22 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def error(update, context):
     logging.warning('Telegram update failed (%s)', type(context.error).__name__)
 
+async def ready(app):
+    logging.warning("Bot authenticated successfully: @%s", app.bot.username)
+
 def main():
-    token = os.environ.get('BOT_TOKEN')
+    token = os.environ.get('BOT_TOKEN', '').strip()
     if not token:
         raise SystemExit('Set BOT_TOKEN in the server environment.')
-    app = Application.builder().token(token).concurrent_updates(8).build()
+    app = Application.builder().token(token).concurrent_updates(8).post_init(ready).build()
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CommandHandler('myid', myid))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
     app.add_error_handler(error)
-    app.run_polling(allowed_updates=['message'])
+    try:
+        app.run_polling(allowed_updates=['message'])
+    except InvalidToken:
+        raise SystemExit('BOT_TOKEN was rejected. Check the token in Render environment settings.') from None
 
 if __name__ == '__main__':
     main()
