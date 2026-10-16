@@ -4,6 +4,15 @@ from downloader import validate_url, extract_media, DownloadError
 class Tests(unittest.TestCase):
     def test_valid(self):
         self.assertEqual(validate_url('https://www.snapchat.com/add/user'), 'https://www.snapchat.com/add/user')
+    def test_short_link_and_official_subdomains(self):
+        for url in ['https://snapchat.com/t/sr8N07sW', 'https://story.snapchat.com/example', 'https://web.snapchat.com/example']:
+            with self.subTest(url=url):
+                self.assertEqual(validate_url(url), url)
+
+    def test_media_error_names_host(self):
+        with self.assertRaisesRegex(DownloadError, 'example.org'):
+            validate_url('https://example.org/video.mp4', media=True)
+
     def test_reject_untrusted_urls(self):
         for url in ['http://www.snapchat.com/x', 'https://snapchat.com.evil.com/x', 'https://localhost/x', 'https://user@www.snapchat.com/x', 'https://www.snapchat.com:8080/x']:
             with self.subTest(url=url), self.assertRaises(DownloadError):
