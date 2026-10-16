@@ -134,21 +134,11 @@ def main():
     app = Application.builder().token(token).concurrent_updates(8).post_init(ready).build()
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CommandHandler('myid', myid))
-    app.add_handler(CallbackQueryHandler(check_subscription, pattern='^check_subscription
+    app.add_handler(CallbackQueryHandler(check_subscription, pattern='^check_subscription$'))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
     app.add_error_handler(error)
     try:
         app.run_polling(allowed_updates=['message', 'callback_query'])
-    except InvalidToken:
-        raise SystemExit('BOT_TOKEN was rejected. Check the token in Render environment settings.') from None
-
-if __name__ == '__main__':
-    main()
-))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
-    app.add_error_handler(error)
-    try:
-        app.run_polling(allowed_updates=['message'])
     except InvalidToken:
         raise SystemExit('BOT_TOKEN was rejected. Check the token in Render environment settings.') from None
 
