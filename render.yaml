@@ -1,0 +1,12 @@
+services:
+  - type: worker
+    name: khsnapchat-bot
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    numInstances: 1
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: ALLOWED_USER_IDS
+        value: ""
