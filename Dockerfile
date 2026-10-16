@@ -3,6 +3,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY bot.py downloader.py ./
+COPY tests ./tests
+RUN python -m unittest discover -s tests -v
 RUN useradd --create-home bot
 USER bot
 CMD ["python", "bot.py"]
