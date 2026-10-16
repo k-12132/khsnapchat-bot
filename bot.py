@@ -6,7 +6,8 @@ import tempfile
 from pathlib import Path
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import InvalidToken, TelegramError
-from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, CallbackQueryHandler, filters
+from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, CallbackQueryHandler, TypeHandler, filters
+from stats_store import StatsStore
 from downloader import DownloadError, validate_url, media_links, download
 
 # Avoid logging Telegram request URLs, which contain the bot token.
@@ -15,6 +16,7 @@ logging.getLogger('httpx').setLevel(logging.WARNING)
 ALLOWED = {int(x.strip()) for x in os.getenv('ALLOWED_USER_IDS', '').split(',') if x.strip()}
 REQUIRED_CHANNEL = '@kh01ed'
 CHANNEL_URL = 'https://t.me/kh01ed'
+OWNER_USER_ID = int(os.getenv('OWNER_USER_ID', '1851142208'))
 BUSY = set()
 SLOTS = asyncio.Semaphore(2)
 
@@ -70,6 +72,38 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             '💡 يدعم الستوري العام المتاح للمشاهدة.'
         )
 
+
+async def track_activity(update, context):
+    if not update.effective_user or update.effective_user.is_bot or not update.effective_chat or not permitted(update):
+        return
+    store = context.bot_data.get('statistics')
+    if store:
+        try:
+            await asyncio.to_thread(store.touch, update.effective_user.id)
+        except Exception:
+            logging.warning('Statistics activity could not be saved.')
+
+async def stats(update, context):
+    if not update.effective_user or update.effective_user.id != OWNER_USER_ID or update.effective_chat.type != 'private':
+        return
+    store = context.bot_data.get('statistics')
+    if not store:
+        await update.effective_message.reply_text('الإحصاءات غير متاحة حاليًا.')
+        return
+    counts = await asyncio.to_thread(store.summary)
+    text = (
+        '📊 إحصاءات البوت\n\n'
+        f"👥 إجمالي المستخدمين: {counts['users']}\n"
+        f"🟢 النشطون اليوم: {counts['active_today']}\n"
+        f"📥 طلبات التحميل الناجحة: {counts['requests']}\n"
+        f"🎬 الملفات المرسلة: {counts['files']}\n\n"
+        f"📅 بداية العد: {counts['since']}\n"
+        '🕒 بتوقيت السعودية'
+    )
+    if not context.bot_data.get('statistics_persistent'):
+        text += '\n\n⚠️ الحفظ مؤقت؛ يُعاد العداد من الصفر عند إعادة تشغيل الخدمة أو نشر تحديث.'
+    await update.effective_message.reply_text(text)
+
 async def myid(update, context):
     if permitted(update):
         await update.message.reply_text(str(update.effective_user.id))
@@ -94,6 +128,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     BUSY.add(uid)
     status = None
+    sent = 0
     try:
         status = await update.message.reply_text('⏳ طلبك قيد المعالجة…')
         async with SLOTS:
@@ -124,6 +159,14 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 pass
     finally:
+        if sent:
+            store = context.bot_data.get('statistics')
+            if store:
+                try:
+                    request_id = str(update.effective_chat.id) + ':' + str(update.message.message_id)
+                    await asyncio.to_thread(store.downloaded, request_id, sent)
+                except Exception:
+                    logging.warning('Successful download counter could not be saved.')
         BUSY.discard(uid)
 
 
@@ -158,6 +201,11 @@ def main():
     if not token:
         raise SystemExit('Set BOT_TOKEN in the server environment.')
     app = Application.builder().token(token).concurrent_updates(8).post_init(ready).build()
+    stats_dir = Path(os.getenv('STATS_DIR', '/tmp/khsnapchat-stats'))
+    app.bot_data['statistics'] = StatsStore(stats_dir / 'stats.sqlite3')
+    app.bot_data['statistics_persistent'] = os.path.ismount(stats_dir)
+    app.add_handler(TypeHandler(Update, track_activity), group=-1)
+    app.add_handler(CommandHandler('stats', stats))
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CommandHandler('myid', myid))
     app.add_handler(CallbackQueryHandler(check_subscription, pattern='^check_subscription$'))
@@ -170,3 +218,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
