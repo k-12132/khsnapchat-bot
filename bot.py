@@ -28,11 +28,19 @@ def subscription_buttons():
         [InlineKeyboardButton('✅ تحقّق من اشتراكي', callback_data='check_subscription')],
     ])
 
+
+def membership_error_reason(exc):
+    message = str(exc).lower()
+    for reason in ('chat not found', 'bot is not a member', 'member list is inaccessible', 'not enough rights', 'user not found', 'forbidden'):
+        if reason in message:
+            return reason
+    return type(exc).__name__
+
 async def subscribed(context, user_id):
     try:
         member = await context.bot.get_chat_member(REQUIRED_CHANNEL, user_id)
-    except TelegramError:
-        logging.warning('Subscription check unavailable; verify bot channel admin access.')
+    except TelegramError as exc:
+        logging.warning('Subscription check unavailable: %s', membership_error_reason(exc))
         return None
     return member.status in ('creator', 'administrator', 'member') or (
         member.status == 'restricted' and bool(getattr(member, 'is_member', False))
@@ -42,12 +50,7 @@ async def require_subscription(update, context):
     result = await subscribed(context, update.effective_user.id)
     if result is True:
         return True
-    message = (
-        '👻 لاستخدام البوت، اشترك أولًا في قناتنا ' + REQUIRED_CHANNEL +
-        ' ثم اضغط «تحقّق من اشتراكي».'
-        if result is False else
-        '⏳ ما قدرنا نتحقق من اشتراكك الآن.\nإذا كنت مشتركًا، اضغط «تحقّق من اشتراكي» بعد قليل.\nوإذا ما اشتركت بعد، يسعدنا انضمامك للقناة 💛'
-    )
+    message = '🎬 حمّل ستوري Snapchat بسهولة !\n\n📢 للبدء، اشترك في القناة التالية ثم اضغط زر تحقق من اشتراكي :'
     await update.effective_message.reply_text(message, reply_markup=subscription_buttons())
     return False
 
@@ -141,8 +144,8 @@ async def ready(app):
     try:
         member = await app.bot.get_chat_member(REQUIRED_CHANNEL, app.bot.id)
         logging.warning('Subscription gate channel=%s bot_admin=%s', REQUIRED_CHANNEL, member.status in ('administrator', 'creator'))
-    except TelegramError:
-        logging.warning('Subscription gate channel access unavailable; add bot as channel administrator.')
+    except TelegramError as exc:
+        logging.warning('Subscription gate access unavailable: %s', membership_error_reason(exc))
 
 def main():
     token = os.environ.get('BOT_TOKEN', '').strip()
