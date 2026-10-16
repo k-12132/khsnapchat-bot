@@ -16,7 +16,7 @@ logging.getLogger('httpx').setLevel(logging.WARNING)
 ALLOWED = {int(x.strip()) for x in os.getenv('ALLOWED_USER_IDS', '').split(',') if x.strip()}
 REQUIRED_CHANNEL = '@kh01ed'
 CHANNEL_URL = 'https://t.me/kh01ed'
-OWNER_USER_ID = int(os.getenv('OWNER_USER_ID', '1851142208'))
+OWNER_USER_ID = int(os.getenv('OWNER_USER_ID', '7729580704'))
 BUSY = set()
 SLOTS = asyncio.Semaphore(2)
 
