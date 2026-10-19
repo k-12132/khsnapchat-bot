@@ -7,6 +7,7 @@ from pathlib import Path
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import InvalidToken, TelegramError
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, CallbackQueryHandler, TypeHandler, filters
+from activation import issue
 from stats_store import StatsStore
 from downloader import DownloadError, validate_url, media_links, download
 
@@ -62,9 +63,38 @@ async def check_subscription(update, context):
     await update.callback_query.answer()
     if await require_subscription(update, context):
         await update.effective_message.reply_text('✅ تم التحقق من اشتراكك! أرسل رابط ستوري سناب عام للتحميل.')
+        if getattr(context, 'user_data', {}).get('activate_tiktok'):
+            await send_activation_receipt(update, context)
+
+async def send_activation_receipt(update, context):
+    secret = os.getenv('BOT_ACTIVATION_SECRET', '').strip()
+    username = context.user_data.get('activation_return_bot') or os.getenv('TIKTOK_BOT_USERNAME', '').strip().lstrip('@')
+    if len(secret) < 32 or not re.fullmatch(r'[A-Za-z0-9_]{5,32}', username):
+        await update.effective_message.reply_text('تفعيل بوت تيك توك غير متاح حاليًا. حاول لاحقًا.')
+        return
+    token = issue(secret, update.effective_user.id)
+    await update.effective_message.reply_text(
+        '✅ تم تفعيل بوت سناب شات! اضغط للعودة وإكمال استخدام بوت تيك توك وإنستقرام.',
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton('✅ العودة وتفعيل التحميل', url=f'https://t.me/{username}?start={token}')],
+        ]),
+    )
+    context.user_data.pop('activate_tiktok', None)
+    context.user_data.pop('activation_return_bot', None)
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if permitted(update) and await require_subscription(update, context):
+    if not permitted(update):
+        return
+    payload = context.args[0] if context.args else ''
+    if payload == 'activate' or re.fullmatch(r'activate_[A-Za-z0-9_]{5,32}', payload):
+        context.user_data['activate_tiktok'] = True
+        if payload.startswith('activate_'):
+            context.user_data['activation_return_bot'] = payload[len('activate_'):]
+    if await require_subscription(update, context):
+        if context.user_data.get('activate_tiktok'):
+            await send_activation_receipt(update, context)
+            return
         await update.message.reply_text(
             '👻 أهلًا بك في سنابك!\n\n'
             '🎬 حمّل صور وفيديوهات ستوري سناب شات بسهولة.\n\n'
@@ -189,6 +219,7 @@ async def error(update, context):
     logging.warning('Telegram update failed (%s)', type(context.error).__name__)
 
 async def ready(app):
+    logging.warning("TikTok activation receipts configured=%s", len(os.getenv("BOT_ACTIVATION_SECRET", "").strip()) >= 32)
     logging.warning("Bot authenticated successfully: @%s", app.bot.username)
     try:
         member = await app.bot.get_chat_member(REQUIRED_CHANNEL, app.bot.id)
