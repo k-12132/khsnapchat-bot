@@ -56,3 +56,15 @@ python -m unittest discover -s tests -v
 Configure both services before deploying the TikTok gate. Set the same randomly generated `BOT_ACTIVATION_SECRET` (32+ characters) in both services. The activation link automatically includes the return bot username; `TIKTOK_BOT_USERNAME` is an optional fallback for old activation links. Keep secrets in server environment settings only. Deploy the Snapchat companion first.
 
 Users join @kh01ed, open @Khsnapchat_bot using the activation button, press Start, then use its return button. Signed receipts expire in ten minutes and are bound to the Telegram user ID. TikTok stores activations in SQLite; use a persistent BOT_DB_PATH to retain them after deployments. This verifies starting Snapchat once, not whether it stays unblocked afterward. Missing or mismatched secrets deny new activations.
+
+## تحسين معالجة الطلبات والأخطاء
+
+- التحميل يعمل في الخلفية لتبقى الأوامر وأزرار الاشتراك مستجيبة. الحد طلب واحد لكل مستخدم، وثمانية طلبات مقبولة إجمالًا، وعمليتا معالجة في الوقت نفسه.
+- يُعاد فحص الاشتراك عند خطأ شبكة مؤقت حتى ثلاث محاولات بفواصل قصيرة. فشل الاتصال لا يُعامل كعدم اشتراك ولا يسمح بتجاوز التحقق.
+- اتصال سناب يعيد المحاولة للأخطاء الشبكية وحالات HTTP المؤقتة فقط، حتى ثلاث محاولات؛ تُفحص نطاقات جميع التحويلات قبل اتباعها.
+- لا يُعاد رفع الملفات تلقائيًا عند انقطاع تيليجرام، لأن الملف قد يكون وصل بالفعل. تظهر رسالة تطلب التحقق مما وصل قبل إعادة المحاولة.
+- ملخص الطلب يوضح فشل الحجم أو الصيغة أو اتصال سناب، ويحسب الملفات التي تأكد إرسالها فقط.
+- سطر `snap_performance` يسجل مدة الطلب، وعدد الملفات المرسلة، وأسباب الفشل دون الروابط أو معرفات المستخدمين أو محتوى الملفات. يعرض `success` أو `partial` أو `failed`. يمكن أن تفشل رسالة الملخص رغم وصول الملفات.
+
+اختبارات الشبكة تستخدم محاكاة، وليست إثباتًا لدعم صفحات سناب العامة الحالية. تبقى تجربة رابط عام فعلي مطلوبة بعد النشر. إعدادات التخزين الدائم وسر التفعيل المشترك مستقلة عن هذه التعديلات ولا تتغير تلقائيًا.
+
