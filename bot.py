@@ -3,9 +3,11 @@ import logging
 import os
 import re
 import tempfile
+import time
+import json
 from pathlib import Path
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.error import InvalidToken, TelegramError
+from telegram.error import BadRequest, InvalidToken, NetworkError, TelegramError
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, CallbackQueryHandler, TypeHandler, filters
 from activation import issue
 from stats_store import StatsStore
@@ -20,6 +22,7 @@ CHANNEL_URL = 'https://t.me/kh01ed'
 OWNER_USER_ID = int(os.getenv('OWNER_USER_ID', '7729580704'))
 BUSY = set()
 SLOTS = asyncio.Semaphore(2)
+MAX_PENDING_REQUESTS = 8
 
 def permitted(update):
     return update.effective_chat.type == 'private' and (not ALLOWED or update.effective_user.id in ALLOWED)
@@ -41,7 +44,16 @@ def membership_error_reason(exc):
 
 async def subscribed(context, user_id):
     try:
-        member = await context.bot.get_chat_member(REQUIRED_CHANNEL, user_id)
+        for attempt in range(3):
+            try:
+                member = await context.bot.get_chat_member(REQUIRED_CHANNEL, user_id)
+                break
+            except BadRequest:
+                raise
+            except NetworkError:
+                if attempt == 2:
+                    raise
+                await asyncio.sleep(0.5 * (2 ** attempt))
     except TelegramError as exc:
         logging.warning('Subscription check unavailable: %s', membership_error_reason(exc))
         return None
@@ -53,6 +65,12 @@ async def require_subscription(update, context):
     result = await subscribed(context, update.effective_user.id)
     if result is True:
         return True
+    if result is None:
+        await update.effective_message.reply_text(
+            '⚠️ تعذر الاتصال بتيليجرام للتحقق من الاشتراك. حاول بعد قليل.',
+            reply_markup=subscription_buttons(),
+        )
+        return False
     message = '🎬 حمّل ستوري Snapchat بسهولة !\n\n📢 للبدء، اشترك في القناة التالية ثم اضغط زر تحقق من اشتراكي :'
     await update.effective_message.reply_text(message, reply_markup=subscription_buttons())
     return False
@@ -147,6 +165,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if uid in BUSY:
         await update.message.reply_text('طلبك السابق قيد المعالجة، انتظر قليلًا.')
         return
+    if len(BUSY) >= MAX_PENDING_REQUESTS:
+        await update.message.reply_text('⏳ البوت مشغول حاليًا. حاول بعد قليل.')
+        return
     urls = re.findall(r'https://[^\s<>]+', update.message.text or '')
     if len(urls) != 1:
         await update.message.reply_text('أرسل رابط سناب شات واحدًا في كل رسالة.')
@@ -159,35 +180,51 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     BUSY.add(uid)
     status = None
     sent = 0
+    started = time.perf_counter()
+    failed = 0
+    reasons = {}
     try:
         status = await update.message.reply_text('⏳ طلبك قيد المعالجة…')
         async with SLOTS:
             links = await asyncio.to_thread(media_links, url)
-            sent, failed = 0, 0
             with tempfile.TemporaryDirectory(prefix='snapbot-') as tmp:
                 for i, link in enumerate(links, 1):
                     try:
                         path = await asyncio.to_thread(download, link, Path(tmp), i)
-                    except Exception:
+                    except Exception as exc:
                         failed += 1
+                        reason = exc.reason if isinstance(exc, DownloadError) else type(exc).__name__
+                        reasons[reason] = reasons.get(reason, 0) + 1
                         continue
                     # Documents preserve original bytes and support images/videos alike.
                     with path.open('rb') as f:
                         await update.message.reply_document(f, filename=path.name, caption=f'👻 {i}/{len(links)}', read_timeout=90, write_timeout=90)
-                    path.unlink(missing_ok=True)
                     sent += 1
-            await status.edit_text(f'✅ أُرسل {sent} ملف. تعذر تنزيل {failed} ملف.' if sent else 'تعذر تنزيل الوسائط الموجودة في الرابط.')
+                    path.unlink(missing_ok=True)
+            summary = f'✅ أُرسل {sent} ملف. تعذر تنزيل {failed} ملف.' if sent else 'تعذر تنزيل الوسائط الموجودة في الرابط.'
+            if reasons.get('too_large'):
+                summary += '\nبعض الملفات تتجاوز حد البوت: 45 ميجابايت.'
+            if reasons.get('format'):
+                summary += '\nبعض الملفات بصيغة غير مدعومة.'
+            if reasons.get('network'):
+                summary += '\nحدث انقطاع اتصال بسناب، حاول لاحقًا.'
+            await edit_status(status, summary)
             if sent:
                 await send_follow_invitation(update.message)
+    except asyncio.CancelledError:
+        reasons['cancelled'] = 1
+        raise
     except DownloadError as exc:
+        reasons[exc.reason] = reasons.get(exc.reason, 0) + 1
         if status:
-            await status.edit_text(str(exc))
-    except Exception:
+            await edit_status(status, str(exc))
+    except Exception as exc:
+        reasons[type(exc).__name__] = reasons.get(type(exc).__name__, 0) + 1
         if status:
-            try:
-                await status.edit_text('تعذر إكمال الطلب. حاول لاحقًا أو جرّب رابطًا عامًا آخر.')
-            except Exception:
-                pass
+            text = f'أُرسل {sent} ملف قبل توقف الطلب. ' if sent else ''
+            text += ('انقطع الاتصال بتيليجرام. تحقق من الملفات التي وصلتك قبل إعادة المحاولة.'
+                     if isinstance(exc, NetworkError) else 'تعذر إكمال الطلب. حاول لاحقًا أو جرّب رابطًا عامًا آخر.')
+            await edit_status(status, text)
     finally:
         if sent:
             store = context.bot_data.get('statistics')
@@ -198,6 +235,26 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except Exception:
                     logging.warning('Successful download counter could not be saved.')
         BUSY.discard(uid)
+        logging.warning('snap_performance %s', json.dumps({
+            'result': 'success' if sent and not reasons else ('partial' if sent else 'failed'),
+            'sent': sent, 'download_failures': failed, 'reasons': reasons,
+            'total_ms': round((time.perf_counter() - started) * 1000, 2),
+        }, sort_keys=True))
+
+
+async def edit_status(message, text):
+    # Editing a known message is idempotent; retrying uploads could duplicate files.
+    for attempt in range(3):
+        try:
+            await message.edit_text(text)
+            return
+        except BadRequest:
+            return
+        except NetworkError:
+            if attempt < 2:
+                await asyncio.sleep(0.5 * (2 ** attempt))
+        except TelegramError:
+            return
 
 
 async def send_follow_invitation(message):
@@ -240,7 +297,7 @@ def main():
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CommandHandler('myid', myid))
     app.add_handler(CallbackQueryHandler(check_subscription, pattern='^check_subscription$'))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle, block=False))
     app.add_error_handler(error)
     try:
         app.run_polling(allowed_updates=['message', 'callback_query'])
@@ -249,4 +306,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
