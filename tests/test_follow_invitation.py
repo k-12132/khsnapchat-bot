@@ -11,7 +11,7 @@ class FollowInvitationTests(unittest.IsolatedAsyncioTestCase):
         message.reply_text.assert_awaited_once()
         markup = message.reply_text.call_args.kwargs['reply_markup']
         self.assertEqual([row[0].url for row in markup.inline_keyboard], [
-            'https://snapchat.com/t/d9GtFjtN', 'https://www.tiktok.com/@kh01ed',
+            'https://snapchat.com/t/It3elZ4c', 'https://www.tiktok.com/@kh01ed',
         ])
 
     async def test_delivery_failure_does_not_fail_download(self):

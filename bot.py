@@ -202,7 +202,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def send_follow_invitation(message):
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton('👻 تابعني على سناب', url='https://snapchat.com/t/d9GtFjtN')],
+        [InlineKeyboardButton('👻 تابعني على سناب', url='https://snapchat.com/t/It3elZ4c')],
         [InlineKeyboardButton('🎵 تابعني على تيك توك', url='https://www.tiktok.com/@kh01ed')],
     ])
     try:
