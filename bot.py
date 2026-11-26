@@ -5,7 +5,7 @@ import re
 import tempfile
 from pathlib import Path
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.error import InvalidToken, TelegramError
+from telegram.error import InvalidToken, NetworkError, TelegramError
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, CallbackQueryHandler, TypeHandler, filters
 from activation import issue
 from stats_store import StatsStore
@@ -41,11 +41,19 @@ def membership_error_reason(exc):
     return type(exc).__name__
 
 async def subscribed(context, user_id):
-    try:
-        member = await context.bot.get_chat_member(REQUIRED_CHANNEL, user_id)
-    except TelegramError as exc:
-        logging.warning('Subscription check unavailable: %s', membership_error_reason(exc))
-        return None
+    for attempt in range(2):
+        try:
+            member = await context.bot.get_chat_member(REQUIRED_CHANNEL, user_id)
+            break
+        except NetworkError as exc:
+            if attempt == 0:
+                await asyncio.sleep(0.5)
+                continue
+            logging.warning('Subscription check unavailable: %s', membership_error_reason(exc))
+            return None
+        except TelegramError as exc:
+            logging.warning('Subscription check unavailable: %s', membership_error_reason(exc))
+            return None
     return member.status in ('creator', 'administrator', 'member') or (
         member.status == 'restricted' and bool(getattr(member, 'is_member', False))
     )
