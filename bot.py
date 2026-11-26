@@ -22,7 +22,8 @@ BUSY = set()
 SLOTS = asyncio.Semaphore(2)
 
 def permitted(update):
-    return update.effective_chat.type == 'private' and (not ALLOWED or update.effective_user.id in ALLOWED)
+    chat, user = update.effective_chat, update.effective_user
+    return bool(chat and user and chat.type == 'private' and (not ALLOWED or user.id in ALLOWED))
 
 
 def subscription_buttons():
@@ -53,6 +54,9 @@ async def require_subscription(update, context):
     result = await subscribed(context, update.effective_user.id)
     if result is True:
         return True
+    if result is None:
+        await update.effective_message.reply_text('⚠️ تعذر التحقق من الاشتراك مؤقتًا. حاول مجددًا بعد قليل.', reply_markup=subscription_buttons())
+        return False
     message = '🎬 حمّل ستوري Snapchat بسهولة !\n\n📢 للبدء، اشترك في القناة التالية ثم اضغط زر تحقق من اشتراكي :'
     await update.effective_message.reply_text(message, reply_markup=subscription_buttons())
     return False
