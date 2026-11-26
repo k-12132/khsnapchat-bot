@@ -5,7 +5,7 @@ import re
 import tempfile
 from pathlib import Path
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.error import InvalidToken, TelegramError
+from telegram.error import InvalidToken, NetworkError, TelegramError
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, CallbackQueryHandler, TypeHandler, filters
 from activation import issue
 from stats_store import StatsStore
@@ -22,7 +22,8 @@ BUSY = set()
 SLOTS = asyncio.Semaphore(2)
 
 def permitted(update):
-    return update.effective_chat.type == 'private' and (not ALLOWED or update.effective_user.id in ALLOWED)
+    chat, user = update.effective_chat, update.effective_user
+    return bool(chat and user and chat.type == 'private' and (not ALLOWED or user.id in ALLOWED))
 
 
 def subscription_buttons():
@@ -40,11 +41,19 @@ def membership_error_reason(exc):
     return type(exc).__name__
 
 async def subscribed(context, user_id):
-    try:
-        member = await context.bot.get_chat_member(REQUIRED_CHANNEL, user_id)
-    except TelegramError as exc:
-        logging.warning('Subscription check unavailable: %s', membership_error_reason(exc))
-        return None
+    for attempt in range(2):
+        try:
+            member = await context.bot.get_chat_member(REQUIRED_CHANNEL, user_id)
+            break
+        except NetworkError as exc:
+            if attempt == 0:
+                await asyncio.sleep(0.5)
+                continue
+            logging.warning('Subscription check unavailable: %s', membership_error_reason(exc))
+            return None
+        except TelegramError as exc:
+            logging.warning('Subscription check unavailable: %s', membership_error_reason(exc))
+            return None
     return member.status in ('creator', 'administrator', 'member') or (
         member.status == 'restricted' and bool(getattr(member, 'is_member', False))
     )
@@ -53,6 +62,9 @@ async def require_subscription(update, context):
     result = await subscribed(context, update.effective_user.id)
     if result is True:
         return True
+    if result is None:
+        await update.effective_message.reply_text('⚠️ تعذر التحقق من الاشتراك مؤقتًا. حاول مجددًا بعد قليل.', reply_markup=subscription_buttons())
+        return False
     message = '🎬 حمّل ستوري Snapchat بسهولة !\n\n📢 للبدء، اشترك في القناة التالية ثم اضغط زر تحقق من اشتراكي :'
     await update.effective_message.reply_text(message, reply_markup=subscription_buttons())
     return False
