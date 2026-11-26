@@ -73,6 +73,8 @@ async def check_subscription(update, context):
     if not permitted(update):
         return
     await update.callback_query.answer()
+    if not update.effective_message:
+        return
     if await require_subscription(update, context):
         await update.effective_message.reply_text('✅ تم التحقق من اشتراكك! أرسل رابط ستوري سناب عام للتحميل.')
         if getattr(context, 'user_data', {}).get('activate_tiktok'):
