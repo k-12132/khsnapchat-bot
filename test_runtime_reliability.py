@@ -17,3 +17,19 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(bot.permitted(SimpleNamespace(effective_chat=None, effective_user=None)))
     def test_syntax(self):
         ast.parse(Path("bot.py").read_text())
+
+
+class ReferralTests(unittest.TestCase):
+    def test_unique_referrals(self):
+        import tempfile
+        from pathlib import Path
+        from stats_store import StatsStore
+        with tempfile.TemporaryDirectory() as directory:
+            store = StatsStore(Path(directory) / "stats.sqlite3")
+            store.touch(1)
+            store.touch(2, invited_by=1)
+            store.touch(2, invited_by=1)
+            store.touch(3, invited_by=3)
+            store.touch(4, invited_by=999)
+            self.assertEqual(store.referral_count(1), 1)
+            self.assertEqual(store.summary()["referrals"], 1)
