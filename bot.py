@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import tempfile
+from urllib.parse import urlencode
 from pathlib import Path
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import InvalidToken, NetworkError, TelegramError
@@ -121,7 +122,8 @@ async def track_activity(update, context):
     store = context.bot_data.get('statistics')
     if store:
         try:
-            await asyncio.to_thread(store.touch, update.effective_user.id)
+            payload = re.fullmatch(r'/start(?:@[A-Za-z0-9_]+)? ref_([0-9]{1,18})', (update.effective_message.text or '') if update.effective_message else '')
+            await asyncio.to_thread(store.touch, update.effective_user.id, invited_by=int(payload.group(1)) if payload else None)
         except Exception:
             logging.warning('Statistics activity could not be saved.')
 
@@ -137,6 +139,7 @@ async def stats(update, context):
         '📊 إحصاءات البوت\n\n'
         f"👥 إجمالي المستخدمين: {counts['users']}\n"
         f"🟢 النشطون اليوم: {counts['active_today']}\n"
+        f"🎁 الدعوات: {counts['referrals']}\n"
         f"📥 طلبات التحميل الناجحة: {counts['requests']}\n"
         f"🎬 الملفات المرسلة: {counts['files']}\n\n"
         f"📅 بداية العد: {counts['since']}\n"
@@ -145,6 +148,14 @@ async def stats(update, context):
     if not context.bot_data.get('statistics_persistent'):
         text += '\n\n⚠️ الحفظ مؤقت؛ يُعاد العداد من الصفر عند إعادة تشغيل الخدمة أو نشر تحديث.'
     await update.effective_message.reply_text(text)
+
+async def invite(update, context):
+    if not permitted(update):
+        return
+    uid = update.effective_user.id
+    count = await asyncio.to_thread(context.bot_data['statistics'].referral_count, uid)
+    link = f'https://t.me/{context.bot.username}?start=ref_{uid}'
+    await update.effective_message.reply_text(f'🎁 رابط دعوتك: {link}\n👥 عدد الدعوات: {count}', reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('📤 مشاركة', url='https://t.me/share/url?' + urlencode({'url': link}))]]))
 
 async def myid(update, context):
     if permitted(update):
@@ -190,7 +201,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     sent += 1
             await status.edit_text(f'✅ أُرسل {sent} ملف. تعذر تنزيل {failed} ملف.' if sent else 'تعذر تنزيل الوسائط الموجودة في الرابط.')
             if sent:
-                await send_follow_invitation(update.message)
+                await send_follow_invitation(update.message, context.bot.username, uid)
     except DownloadError as exc:
         if status:
             await status.edit_text(str(exc))
@@ -212,8 +223,10 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         BUSY.discard(uid)
 
 
-async def send_follow_invitation(message):
+async def send_follow_invitation(message, username, uid):
     keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton('📤 شارك البوت', url='https://t.me/share/url?' + urlencode({'url': f'https://t.me/{username}?start=ref_{uid}', 'text': 'بوت تحميل ستوري سناب العام'}))],
+        [InlineKeyboardButton('🎬 تحميل تيك توك وإنستغرام', url='https://t.me/khtiktokbot')],
         [InlineKeyboardButton('👻 تابعني على سناب', url='https://snapchat.com/t/It3elZ4c')],
         [InlineKeyboardButton('🎵 تابعني على تيك توك', url='https://www.tiktok.com/@kh01ed')],
     ])
@@ -231,6 +244,12 @@ async def error(update, context):
     logging.warning('Telegram update failed (%s)', type(context.error).__name__)
 
 async def ready(app):
+    try:
+        await app.bot.set_my_name("تحميل سناب شات | KH Downloader")
+        await app.bot.set_my_description("تحميل صور وفيديوهات ستوري سناب شات العام. أرسل الرابط للبدء.")
+        await app.bot.set_my_short_description("تحميل ستوري سناب شات العام")
+    except TelegramError:
+        logging.warning("Bot profile update unavailable")
     logging.warning("TikTok activation receipts configured=%s", len(os.getenv("BOT_ACTIVATION_SECRET", "").strip()) >= 32)
     logging.warning("Bot authenticated successfully: @%s", app.bot.username)
     try:
@@ -251,6 +270,7 @@ def main():
     app.add_handler(CommandHandler('stats', stats))
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CommandHandler('myid', myid))
+    app.add_handler(CommandHandler('invite', invite))
     app.add_handler(CallbackQueryHandler(check_subscription, pattern='^check_subscription$'))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
     app.add_error_handler(error)
